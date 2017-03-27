@@ -141,9 +141,9 @@ def construct_data_and_labels(aan_list, vector_space, attr_train_set, verbosity 
     not_in_embedding_space = []
 
     for ana in aan_list:
-        adj = aan[2]
-        noun = aan[1]
-        attr = aan[0]
+        adj = ana[2]
+        noun = ana[1]
+        attr = ana[0]
 
         if attr in attr_train_set or attr.upper() in attr_train_set:
             #nur falls das attribut in der konkreten Trainingsmenge enthalten ist
