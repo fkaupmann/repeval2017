@@ -212,12 +212,30 @@ def train_model(data, labels, composition_mode, verbosity=2):
     model = Model(input = adj_noun_input, output = output)
     model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
 
-    model.fit(data,labels, verbose=0)
-
-    model.get_weights()
+    model.fit(data,labels, verbose=verbosity, nb_epoch=10, batch_size=128)
 
     return model
 
+#TODO: better distinction between function for training and creating the model
+
+def create_model(composition_mode, verbosity=2):
+    """
+    Create model architecture with a certain compositional function.
+    :param composition_mode:
+    :param verbosity:
+    :return:
+    """
+    if verbosity >= 1:
+        print("Trainiere NN mit mode %s..." % composition_mode)
+
+    adj_noun_input = Input(shape=(2,300)) #2 vektoren, je 300 dimensionen
+
+    output = MagicOperation(300, composition_mode = composition_mode)(adj_noun_input)
+
+    model = Model(input = adj_noun_input, output = output)
+    model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
+
+    return model
 
 def min_mean_max_weight_matrix(weights):
     """Computes mean min and max for weight matrices."""
