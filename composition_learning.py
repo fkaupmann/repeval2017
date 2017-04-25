@@ -39,9 +39,7 @@ class MagicOperation(Layer):
 
         input_dim = input_shape[2]
         initial_weight_value = 0
-        if self.composition_mode == 'tensor_mult_random':
-            initial_weight_value = np.random.random((input_dim, input_dim, input_dim))
-        elif self.composition_mode == 'tensor_mult_identity':
+        if self.composition_mode == 'tensor_mult_identity':
             arr = []
             for i in range(0,input_dim):
                 arr.append(np.identity(input_dim))
@@ -53,31 +51,13 @@ class MagicOperation(Layer):
         elif self.composition_mode == 'weighted_adj_and_noun_add_identity':
             initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
                                                np.identity(input_dim).tolist()])
-        elif self.composition_mode == 'weighted_adj_add_random':
-            initial_weight_value = np.random.random((input_dim,input_dim))
-        elif self.composition_mode == 'weighted_noun_add_random':
-            initial_weight_value = np.random.random((input_dim,input_dim))
-        elif self.composition_mode == 'weighted_adj_and_noun_add_random':
-            initial_weight_value = np.asarray([np.random.random((input_dim,input_dim)).tolist(),
-                                               np.random.random((input_dim,input_dim)).tolist()])
-        elif self.composition_mode == 'weighted_adj_add_ones':
-            initial_weight_value = np.ones((input_dim,input_dim))
-        elif self.composition_mode == 'weighted_noun_add_ones':
-            initial_weight_value = np.ones((input_dim,input_dim))
-        elif self.composition_mode == 'weighted_adj_and_noun_add_ones':
-            initial_weight_value = np.asarray([np.ones((input_dim,input_dim)).tolist(),
-                                               np.ones((input_dim,input_dim)).tolist()])
-        elif self.composition_mode == 'weighted_adj_and_noun_add_identity_with_rands':
-            W_one_dim = ((np.ones((input_dim,input_dim)) - np.identity(input_dim)) * np.random.random((input_dim,input_dim)) * 0.1 + np.identity((input_dim))).tolist()
-            # W_noun = ((np.ones((input_dim,input_dim)) - np.identity(input_dim)) * np.random.random((input_dim,input_dim)) * 0.1 + np.identity((input_dim))).tolist()
-            initial_weight_value = np.asarray([W_one_dim,W_one_dim])
-        elif self.composition_mode == 'weighted_adj_noun_add_sum1_identity':
-            initial_weight_value = np.identity(input_dim)
-        elif self.composition_mode == 'weighted_adj_noun_add_sum1_random':
-            initial_weight_value = np.random.random((input_dim,input_dim))
-        elif self.composition_mode == 'same_weights_add_identity':
-            initial_weight_value = np.identity(input_dim)
+        elif self.composition_mode == 'weighted_transitive_add_identity':
+             initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
+                                               np.identity(input_dim).tolist(),
+                                               np.identity(input_dim).tolist()])
+        
 
+            
         self.W = K.variable(initial_weight_value)
         self.trainable_weights = [self.W]
 
@@ -90,10 +70,15 @@ class MagicOperation(Layer):
         :return: attribute vector.
         """
 
-        adj = x[:,0,:]
-        noun = x[:,1,:]
-
-        attribute = []
+        if not 'transitive' in self.composition_mode:
+            adj = x[:,0,:] 
+            noun = x[:,1,:]
+        elif 'transitive' in self.composition_mode:
+            pred = x[:,0,:]
+            subj = x[:,1,:]
+            obj = x[:,2,:]
+        
+        target = []
 
         if 'tensor_mult' in self.composition_mode:
             # print("Call mit tensor_mult!")    #todo normalisieren?
@@ -101,34 +86,29 @@ class MagicOperation(Layer):
             attribute = T.tensordot(noun,adj_matrix, [[1],[1]])     #anmerkung für später: hier einfach auch noch über 0-te achse summieren, macht das arbeiten mit dem modell nachher leichter
         elif 'weighted_adj_add' in self.composition_mode:
             weighted_adj = T.dot(adj, self.W)
-            attribute = weighted_adj + noun
+            target = weighted_adj + noun
         elif 'weighted_noun_add' in self.composition_mode:
             weighted_noun = T.dot(noun, self.W)
-            attribute = adj + weighted_noun
+            target = adj + weighted_noun
         elif 'weighted_adj_and_noun_add' in self.composition_mode:
             weighted_adj = T.dot(adj, self.W[0])
             weighted_noun = T.dot(noun, self.W[1])
-            attribute = weighted_adj + weighted_noun
-        elif 'weighted_adj_noun_add_sum1' in self.composition_mode:
-            weighted_adj= T.dot(adj, self.W)
-            weighted_noun = T.dot(noun, 1 - self.W)
-            attribute = weighted_adj + weighted_noun
-        elif 'same_weights_add_identity' in self.composition_mode:
-            weighted_adj= T.dot(adj, self.W)
-            weighted_noun = T.dot(noun, self.W)
-            attribute = weighted_adj + weighted_noun
-        return attribute
+            target = weighted_adj + weighted_noun
+        elif 'weighted_transitive_add' in self.composition_mode:
+            weighted_pred = T.dot(pred, self.W[0])
+            weighted_subj = T.dot(subj, self.W[1])
+            weighted_obj = T.dot(obj, self.W[2])
+            target = weighted_pred + weighted_subj + weighted_obj
+        return target
 
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], self.output_dim)
 
-def construct_data_and_labels(aan_list, vector_space, attr_train_set, verbosity = 2):
+def construct_data_and_labels(input_data, vector_space, targets_for_training, verbosity = 2):
     """
     Constructs data matrix for training.
-    :param aan_list: a list of attribute-adjective-noun triples.
+    :param input_data: a list of inputs as strings.  
     :param vector_space: pre-trained word embeddings.
-    :param attr_train_set: a list of attribute that are used during training. Triples containing
-    attributes that are not contained in this list are not considered for training.
     :param verbosity:
     :return:
     """
@@ -140,47 +120,49 @@ def construct_data_and_labels(aan_list, vector_space, attr_train_set, verbosity 
     tmp_labels = []
     not_in_embedding_space = []
 
-    for ana in aan_list:
-        adj = ana[2]
-        noun = ana[1]
-        attr = ana[0]
+    #####BAUSTELLE#####
 
-        if attr in attr_train_set or attr.upper() in attr_train_set:
+    for sample in input_data:
+        target = sample[0]
+        inputs = sample[1:]
+
+        if target in targets_for_training or target.upper() in targets_for_training:
             #nur falls das attribut in der konkreten Trainingsmenge enthalten ist
             if verbosity >= 2:
                 print("{} ist in Trainings-set".format(attr.upper()))
-            adjective_noun = []
-            attribute = []
+            input_embedding = []
+            target_embedding = []
 
             x = False
             y = False
 
             try:
-                adjective_noun = [vector_space[adj],vector_space[noun]]
+                for word in inputs:
+                    input_embedding.append(vector_space(word)]
+                # adjective_noun = [vector_space[adj],vector_space[noun]]
                 # adjective_noun = vector_space[adj] #nur zu testzwecken
                 x = True
             except KeyError:
                 if verbosity >=2:
                     print("Adjektiv oder Nomen beim Training nicht in WordEmbeddings enthalten: %s,%s" % (adj,noun))
-                if adj not in not_in_embedding_space and noun not in not_in_embedding_space:
-                    not_in_embedding_space += [adj,noun]
-
+                    
+                not_in_embedding_space += inputs
 
 
             try:
-                attribute = vector_space[attr.lower()]
+                target_embedding = vector_space[target.lower()]
                 y = True
             except KeyError:
                 if verbosity>=2:
                     print("Attribut beim Training nicht in WordEmbeddings enthalten: %s" % (attr))
-                if attr not in not_in_embedding_space:
-                    not_in_embedding_space += [attr]
+                if target not in not_in_embedding_space:
+                    not_in_embedding_space += [target]
 
 
 
             if x and y:
-                tmp_data.append(adjective_noun)
-                tmp_labels.append(attribute)
+                tmp_data.append(input_embedding)
+                tmp_labels.append(target_embedding)
 
     tmp_data = np.asarray(tmp_data)
     tmp_labels = np.asarray(tmp_labels)
