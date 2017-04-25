@@ -193,7 +193,7 @@ def construct_data_and_labels(aan_list, vector_space, attr_train_set, verbosity 
 
 
 
-def train_model(data, labels, composition_mode, verbosity=2):
+def train_model(data_generator, samples_per_epoch, composition_mode, verbosity=2):
     """
     Trains a model that uses certain data, labels and a compositional function.
     :param data: input data
@@ -212,7 +212,7 @@ def train_model(data, labels, composition_mode, verbosity=2):
     model = Model(input = adj_noun_input, output = output)
     model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
 
-    model.fit(data,labels, verbose=verbosity, nb_epoch=10, batch_size=128)
+    model.fit_generator(data_generator, samples_per_epoch=samples_per_epoch, verbose=verbosity, nb_epoch=10)
 
     return model
 
