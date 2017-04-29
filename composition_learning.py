@@ -12,6 +12,15 @@ from theano import function
 import sys
 import file_util
 
+def init_3d_identity(shape, dtype=None):
+    arr  = []
+    #iterate over the z-axis
+    for i in range(0, shape[2]):
+        arr.append(np.identity(shape[0]))
+    initial_weights = np.array(arr)
+    return K.variable(initial_weights)
+
+
 #Used for the neural architecture, learning algorithm and preprocessing of data.
 
 class MagicOperation(Layer):
@@ -36,30 +45,42 @@ class MagicOperation(Layer):
         :param input_shape:
         :return:
         """
-
+        
         input_dim = input_shape[2]
         initial_weight_value = 0
+        
         if self.composition_mode == 'tensor_mult_identity':
-            arr = []
-            for i in range(0,input_dim):
-                arr.append(np.identity(input_dim))
-            initial_weight_value = np.array(arr)
-        elif self.composition_mode == 'weighted_adj_add_identity':
-            initial_weight_value = np.identity(input_dim)
-        elif self.composition_mode == 'weighted_noun_add_identity':
-            initial_weight_value = np.identity(input_dim)
+            self.kernel = self.add_weight(shape=(input_dim,input_dim,input_dim),
+                    initializer=init_3d_identity,
+                    trainable=True)
         elif self.composition_mode == 'weighted_adj_and_noun_add_identity':
-            initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
-                                               np.identity(input_dim).tolist()])
-        elif self.composition_mode == 'weighted_transitive_add_identity':
-             initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
-                                               np.identity(input_dim).tolist(),
-                                               np.identity(input_dim).tolist()])
+            self.kernel = self.add_weight(shape=(input_dim,input_dim),
+                    initializer='identity',
+                    trainable=True)
+
+####These have been here before, do not uncomment without fitting to the new keras version
+#        if self.composition_mode == 'tensor_mult_identity':
+#            arr = []
+#            for i in range(0,input_dim):
+#                arr.append(np.identity(input_dim))
+#            initial_weight_value = np.array(arr)
+#        elif self.composition_mode == 'weighted_adj_add_identity':
+#            initial_weight_value = np.identity(input_dim)
+#        elif self.composition_mode == 'weighted_noun_add_identity':
+#            initial_weight_value = np.identity(input_dim)
+#        elif self.composition_mode == 'weighted_adj_and_noun_add_identity':
+#            initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
+#                                               np.identity(input_dim).tolist()])
+#        elif self.composition_mode == 'weighted_transitive_add_identity':
+#             initial_weight_value = np.asarray([np.identity(input_dim).tolist(),
+#                                               np.identity(input_dim).tolist(),
+#                                               np.identity(input_dim).tolist()])
         
 
             
-        self.W = K.variable(initial_weight_value)
-        self.trainable_weights = [self.W]
+#        self.W = K.variable(initial_weight_value)
+#        self.trainable_weights = [self.W]
+        self.built = True
 
     def call(self, x, mask=None):
         """
@@ -82,26 +103,30 @@ class MagicOperation(Layer):
 
         if 'tensor_mult' in self.composition_mode:
             # print("Call mit tensor_mult!")    #todo normalisieren?
-            adj_matrix = T.tensordot(adj,self.W,[[1],[2]])
+            adj_matrix = T.tensordot(adj,self.kernel,[[1],[2]])
             attribute = T.tensordot(noun,adj_matrix, [[1],[1]])     #anmerkung für später: hier einfach auch noch über 0-te achse summieren, macht das arbeiten mit dem modell nachher leichter
         elif 'weighted_adj_add' in self.composition_mode:
-            weighted_adj = T.dot(adj, self.W)
+            weighted_adj = T.dot(adj, self.kernel)
             target = weighted_adj + noun
         elif 'weighted_noun_add' in self.composition_mode:
-            weighted_noun = T.dot(noun, self.W)
+            weighted_noun = T.dot(noun, self.kernel)
             target = adj + weighted_noun
         elif 'weighted_adj_and_noun_add' in self.composition_mode:
-            weighted_adj = T.dot(adj, self.W[0])
-            weighted_noun = T.dot(noun, self.W[1])
+            weighted_adj = T.dot(adj, self.kernel[0])
+            weighted_noun = T.dot(noun, self.kernel[1])
             target = weighted_adj + weighted_noun
         elif 'weighted_transitive_add' in self.composition_mode:
-            weighted_pred = T.dot(pred, self.W[0])
-            weighted_subj = T.dot(subj, self.W[1])
-            weighted_obj = T.dot(obj, self.W[2])
+            weighted_pred = T.dot(pred, self.kernel[0])
+            weighted_subj = T.dot(subj, self.kernel[1])
+            weighted_obj = T.dot(obj, self.kernel[2])
             target = weighted_pred + weighted_subj + weighted_obj
         return target
 
     def get_output_shape_for(self, input_shape):
+        return (input_shape[0], self.output_dim)
+
+
+    def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
 
 def construct_data_and_labels(input_data, vector_space, targets_for_training, verbosity = 2):
@@ -138,7 +163,7 @@ def construct_data_and_labels(input_data, vector_space, targets_for_training, ve
 
             try:
                 for word in inputs:
-                    input_embedding.append(vector_space(word)]
+                    input_embedding.append(vector_space[word])
                 # adjective_noun = [vector_space[adj],vector_space[noun]]
                 # adjective_noun = vector_space[adj] #nur zu testzwecken
                 x = True
@@ -191,8 +216,8 @@ def train_model(data_generator, samples_per_epoch, composition_mode, verbosity=2
 
     output = MagicOperation(300, composition_mode = composition_mode)(adj_noun_input)
 
-    model = Model(input = adj_noun_input, output = output)
-    model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
+    model = Model(inputs = adj_noun_input, outputs = output)
+    model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
 
     model.fit_generator(data_generator, samples_per_epoch=samples_per_epoch, verbose=verbosity, nb_epoch=10)
 
@@ -208,14 +233,14 @@ def create_model(composition_mode, verbosity=2):
     :return:
     """
     if verbosity >= 1:
-        print("Trainiere NN mit mode %s..." % composition_mode)
+        print("Erstelle NN mit mode %s..." % composition_mode)
 
     adj_noun_input = Input(shape=(2,300)) #2 vektoren, je 300 dimensionen
 
     output = MagicOperation(300, composition_mode = composition_mode)(adj_noun_input)
 
-    model = Model(input = adj_noun_input, output = output)
-    model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
+    model = Model(inputs = adj_noun_input, outputs = output)
+    # model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
 
     return model
 
