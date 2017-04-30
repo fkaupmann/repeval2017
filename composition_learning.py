@@ -2,6 +2,7 @@ from keras import backend as K
 from keras.engine.topology import Layer
 from keras.layers import Input
 from keras.models import Model
+from keras.initializers import Initializer
 
 from gensim.models import Word2Vec
 
@@ -12,14 +13,16 @@ from theano import function
 import sys
 import file_util
 
+
 def init_3d_identity(shape, dtype=None):
     arr  = []
     #iterate over the z-axis
     for i in range(0, shape[2]):
-        arr.append(np.identity(shape[0]))
+        arr.append(np.identity(shape[0], dtype=dtype))
     initial_weights = np.array(arr)
-    return K.variable(initial_weights)
 
+    #return K.variable(initial_weights)
+    return initial_weights
 
 #Used for the neural architecture, learning algorithm and preprocessing of data.
 
@@ -54,7 +57,10 @@ class MagicOperation(Layer):
                     initializer=init_3d_identity,
                     trainable=True)
         elif self.composition_mode == 'weighted_adj_and_noun_add_identity':
-            self.kernel = self.add_weight(shape=(input_dim,input_dim),
+            self.adj_kernel = self.add_weight(shape=(input_dim,input_dim),
+                    initializer='identity',
+                    trainable=True)
+            self.noun_kernel = self.add_weight(shape=(input_dim,input_dim),
                     initializer='identity',
                     trainable=True)
 
@@ -105,6 +111,7 @@ class MagicOperation(Layer):
             # print("Call mit tensor_mult!")    #todo normalisieren?
             adj_matrix = T.tensordot(adj,self.kernel,[[1],[2]])
             attribute = T.tensordot(noun,adj_matrix, [[1],[1]])     #anmerkung für später: hier einfach auch noch über 0-te achse summieren, macht das arbeiten mit dem modell nachher leichter
+            target = attribute
         elif 'weighted_adj_add' in self.composition_mode:
             weighted_adj = T.dot(adj, self.kernel)
             target = weighted_adj + noun
@@ -112,8 +119,8 @@ class MagicOperation(Layer):
             weighted_noun = T.dot(noun, self.kernel)
             target = adj + weighted_noun
         elif 'weighted_adj_and_noun_add' in self.composition_mode:
-            weighted_adj = T.dot(adj, self.kernel[0])
-            weighted_noun = T.dot(noun, self.kernel[1])
+            weighted_adj = T.dot(adj, self.adj_kernel)
+            weighted_noun = T.dot(noun, self.noun_kernel)
             target = weighted_adj + weighted_noun
         elif 'weighted_transitive_add' in self.composition_mode:
             weighted_pred = T.dot(pred, self.kernel[0])
@@ -200,7 +207,7 @@ def construct_data_and_labels(input_data, vector_space, targets_for_training, ve
 
 
 
-def train_model(data_generator, samples_per_epoch, composition_mode, verbosity=2):
+def train_model(data_generator, steps_per_epoch, composition_mode, nb_epoch=10, verbosity=2):
     """
     Trains a model that uses certain data, labels and a compositional function.
     :param data: input data
@@ -219,7 +226,7 @@ def train_model(data_generator, samples_per_epoch, composition_mode, verbosity=2
     model = Model(inputs = adj_noun_input, outputs = output)
     model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
 
-    model.fit_generator(data_generator, samples_per_epoch=samples_per_epoch, verbose=verbosity, nb_epoch=10)
+    model.fit_generator(data_generator,steps_per_epoch=steps_per_epoch, verbose=verbosity, nb_epoch=nb_epoch)
 
     return model
 
@@ -238,9 +245,11 @@ def create_model(composition_mode, verbosity=2):
     adj_noun_input = Input(shape=(2,300)) #2 vektoren, je 300 dimensionen
 
     output = MagicOperation(300, composition_mode = composition_mode)(adj_noun_input)
-
+    print(type(adj_noun_input))
+    print(type(output))
+	
     model = Model(inputs = adj_noun_input, outputs = output)
-    # model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
+    model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
 
     return model
 
