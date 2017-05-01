@@ -55,13 +55,16 @@ class MagicOperation(Layer):
         if self.composition_mode == 'tensor_mult_identity':
             self.kernel = self.add_weight(shape=(input_dim,input_dim,input_dim),
                     initializer=init_3d_identity,
+                    name='tensor_weights',
                     trainable=True)
         elif self.composition_mode == 'weighted_adj_and_noun_add_identity':
             self.adj_kernel = self.add_weight(shape=(input_dim,input_dim),
                     initializer='identity',
+                    name='adj_weights',
                     trainable=True)
             self.noun_kernel = self.add_weight(shape=(input_dim,input_dim),
                     initializer='identity',
+                    name='noun_weights',
                     trainable=True)
 
 ####These have been here before, do not uncomment without fitting to the new keras version
@@ -226,7 +229,7 @@ def train_model(data_generator, steps_per_epoch, composition_mode, nb_epoch=10, 
     model = Model(inputs = adj_noun_input, outputs = output)
     model.compile(optimizer='adam', loss='cosine_proximity', metrics=['accuracy'])
 
-    model.fit_generator(data_generator,steps_per_epoch=steps_per_epoch, verbose=verbosity, nb_epoch=nb_epoch)
+    model.fit_generator(data_generator,steps_per_epoch=steps_per_epoch, verbose=verbosity, epochs=nb_epoch)
 
     return model
 
